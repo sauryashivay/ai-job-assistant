@@ -122,15 +122,17 @@ def refresh_jobs(
     return response.json()
 
 
-def fetch_matching_jobs() -> list[dict[str, Any]]:
-    response = requests.get(
+def fetch_matching_jobs(
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    response = requests.post(
         f"{API_BASE_URL}/matcher/jobs",
+        json=profile,
         timeout=30,
     )
     response.raise_for_status()
 
     return response.json()
-
 
 def analyze_resume_file(
     uploaded_file: Any,
@@ -357,7 +359,9 @@ if recommend_button:
     with st.spinner("Matching your resume with available jobs..."):
         try:
             st.session_state.recommended_jobs = (
-                fetch_matching_jobs()
+              fetch_matching_jobs(
+                st.session_state.resume_profile
+              )
             )
 
             if not st.session_state.recommended_jobs:

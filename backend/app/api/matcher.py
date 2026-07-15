@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,47 +16,27 @@ router = APIRouter(
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
 
-# Temporary storage for the latest analyzed resume
-latest_resume: ResumeProfile | None = None
 
-
-@router.post("/resume")
-def save_resume(profile: ResumeProfile):
-    global latest_resume
-    latest_resume = profile
-
-    return {
-        "message": "Resume profile saved successfully."
-    }
-
-
-@router.get("/jobs")
-def get_matching_jobs(db: DatabaseSession):
-    global latest_resume
-
-    if latest_resume is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Analyze a resume first."
-        )
-
+@router.post("/jobs")
+def get_matching_jobs(
+    profile: ResumeProfile,
+    db: DatabaseSession,
+) -> list[dict[str, Any]]:
     jobs = db.scalars(
-        select(Job).where(Job.is_active == True)
+        select(Job).where(Job.is_active.is_(True))
     ).all()
 
-    matches = []
-
-    for job in jobs:
-        matches.append(
-            calculate_match_score(
-                latest_resume,
-                job
-            )
+    matches = [
+        calculate_match_score(
+            profile=profile,
+            job=job,
         )
+        for job in jobs
+    ]
 
     matches.sort(
-        key=lambda x: x["match_score"],
-        reverse=True
+        key=lambda match: match["match_score"],
+        reverse=True,
     )
 
     return matches[:20]
