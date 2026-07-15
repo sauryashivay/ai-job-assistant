@@ -134,6 +134,22 @@ def fetch_matching_jobs(
 
     return response.json()
 
+
+
+def ai_search(query: str):
+
+    response = requests.post(
+        f"{API_BASE_URL}/chat/search",
+        params={
+            "query": query,
+        },
+        timeout=60,
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
 def analyze_resume_file(
     uploaded_file: Any,
 ) -> dict[str, Any]:
@@ -248,6 +264,30 @@ with st.sidebar:
         use_container_width=True,
     )
 
+
+st.markdown("---")
+st.subheader("🤖 Ask CareerPilot AI")
+
+ai_query = st.text_area(
+    "Describe the job you're looking for",
+    placeholder="""
+Examples:
+
+• Find me remote ML internships above 10 LPA.
+
+• I know Python and SQL. Find backend internships.
+
+• Freshers jobs in Data Science in Bangalore.
+
+• Remote AI Engineer jobs.
+""",
+    height=140,
+)
+
+ai_search_button = st.button(
+    "Search with AI",
+    key="ai_search_button",
+)
 
 # Resume analysis section
 st.markdown("---")
@@ -437,6 +477,40 @@ if refresh_button:
                     "Could not refresh jobs. Make sure the FastAPI "
                     f"backend is running.\n\n{get_error_message(error)}"
                 )
+
+
+if ai_search_button:
+
+    if not ai_query.strip():
+
+        st.warning("Please enter your job search.")
+
+    else:
+
+        with st.spinner("CareerPilot is searching..."):
+
+            try:
+
+                result = ai_search(ai_query)
+
+                st.success(
+                    f"Found {result['total_jobs']} matching jobs."
+                )
+
+                st.session_state.jobs = result["jobs"]
+
+                with st.expander(
+                    "🧠 AI understood your request"
+                ):
+
+                    st.json(result["parsed_query"])
+
+            except requests.RequestException as error:
+
+                st.error(
+                    get_error_message(error)
+                )
+
 
 
 # Load saved jobs after search or refresh
