@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from backend.app import models
 from backend.app.api.jobs import router as jobs_router
+from backend.app.api.resume import router as resume_router
 from backend.app.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -16,6 +17,7 @@ app = FastAPI(
 )
 
 app.include_router(jobs_router)
+app.include_router(resume_router)
 
 
 @app.get("/")
