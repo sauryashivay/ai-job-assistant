@@ -1,18 +1,21 @@
 from fastapi import FastAPI
 
-from backend.app.database import Base, engine
 from backend.app import models
+from backend.app.api.jobs import router as jobs_router
+from backend.app.database import Base, engine
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="AI Job Assistant API",
     description=(
-        "Backend API for job aggregation, conversational job search, "
-        "and resume-based job recommendations."
+        "Backend API for live job aggregation, "
+        "job search, and resume recommendations."
     ),
-    version="0.1.0",
+    version="0.2.0",
 )
+
+app.include_router(jobs_router)
 
 
 @app.get("/")
