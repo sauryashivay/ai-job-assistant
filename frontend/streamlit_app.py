@@ -86,7 +86,10 @@ st.markdown(
 )
 
 
-def fetch_jobs(keyword: str, limit: int) -> list[dict[str, Any]]:
+def fetch_jobs(
+    keyword: str,
+    limit: int,
+) -> list[dict[str, Any]]:
     params = {
         "keyword": keyword if keyword else None,
         "limit": limit,
@@ -102,7 +105,10 @@ def fetch_jobs(keyword: str, limit: int) -> list[dict[str, Any]]:
     return response.json()
 
 
-def refresh_jobs(keyword: str, limit: int) -> dict[str, Any]:
+def refresh_jobs(
+    keyword: str,
+    limit: int,
+) -> dict[str, Any]:
     response = requests.post(
         f"{API_BASE_URL}/jobs/refresh",
         params={
@@ -110,6 +116,37 @@ def refresh_jobs(keyword: str, limit: int) -> dict[str, Any]:
             "limit": limit,
         },
         timeout=30,
+    )
+    response.raise_for_status()
+
+    return response.json()
+
+
+def fetch_matching_jobs() -> list[dict[str, Any]]:
+    response = requests.get(
+        f"{API_BASE_URL}/matcher/jobs",
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    return response.json()
+
+
+def analyze_resume_file(
+    uploaded_file: Any,
+) -> dict[str, Any]:
+    files = {
+        "file": (
+            uploaded_file.name,
+            uploaded_file.getvalue(),
+            uploaded_file.type,
+        )
+    }
+
+    response = requests.post(
+        f"{API_BASE_URL}/resume/analyze",
+        files=files,
+        timeout=90,
     )
     response.raise_for_status()
 
@@ -132,28 +169,39 @@ def format_salary(
     return f"Up to ₹{salary_max:,.0f}"
 
 
-def analyze_resume_file(
-    uploaded_file: Any,
-) -> dict[str, Any]:
-    files = {
-        "file": (
-            uploaded_file.name,
-            uploaded_file.getvalue(),
-            uploaded_file.type,
+def get_error_message(
+    error: requests.RequestException,
+) -> str:
+    error_message = str(error)
+
+    if (
+        error.response is not None
+        and error.response.headers.get(
+            "content-type",
+            "",
+        ).startswith("application/json")
+    ):
+        error_data = error.response.json()
+        error_message = error_data.get(
+            "detail",
+            error_message,
         )
-    }
 
-    response = requests.post(
-        f"{API_BASE_URL}/resume/analyze",
-        files=files,
-        timeout=90,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
+    return error_message
 
 
+# Session-state initialization
+if "resume_profile" not in st.session_state:
+    st.session_state.resume_profile = None
+
+if "recommended_jobs" not in st.session_state:
+    st.session_state.recommended_jobs = []
+
+if "jobs" not in st.session_state:
+    st.session_state.jobs = []
+
+
+# Page header
 st.markdown(
     '<div class="hero-title">AI Job Assistant</div>',
     unsafe_allow_html=True,
@@ -169,88 +217,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("---")
 
-st.subheader("Resume-based job recommendations")
-
-uploaded_resume = st.file_uploader(
-    "Upload your resume",
-    type=["pdf", "docx"],
-    help="Maximum file size: 5 MB",
-)
-
-analyze_resume_button = st.button(
-    "Analyze resume",
-    disabled=uploaded_resume is None,
-)
-
-
-if "resume_profile" not in st.session_state:
-    st.session_state.resume_profile = None
-
-if analyze_resume_button and uploaded_resume is not None:
-    with st.spinner("AI is analyzing your resume..."):
-        try:
-            st.session_state.resume_profile = (
-                analyze_resume_file(uploaded_resume)
-            )
-
-            st.success("Resume analyzed successfully.")
-
-        except requests.RequestException as error:
-            error_message = str(error)
-
-            if (
-                error.response is not None
-                and error.response.headers.get(
-                    "content-type",
-                    "",
-                ).startswith("application/json")
-            ):
-                error_data = error.response.json()
-                error_message = error_data.get(
-                    "detail",
-                    error_message,
-                )
-
-            st.error(error_message)
-
-
-
-profile = st.session_state.resume_profile
-
-if profile:
-    st.markdown("### Candidate profile")
-
-    profile_column, role_column = st.columns(2)
-
-    with profile_column:
-        st.write(f"**Name:** {profile.get('name') or 'Not detected'}")
-        st.write(
-            f"**Graduation year:** {profile.get('graduation_year') or 'Not detected'}"
-        )
-        st.write(
-            f"**Experience:** {profile.get('years_of_experience', 0)} years"
-        )
-
-    with role_column:
-        st.write("**Suggested roles:**")
-
-        roles = profile.get("suggested_roles", [])
-
-        if roles:
-            for role in roles:
-                st.write(f"• {role}")
-        else:
-            st.write("No roles detected")
-
-    st.write("**Skills detected:**")
-
-    skills = profile.get("skills", [])
-
-    if skills:
-        st.write(", ".join(skills))
-
+# Sidebar filters
 with st.sidebar:
     st.header("Search filters")
 
@@ -278,6 +246,171 @@ with st.sidebar:
         use_container_width=True,
     )
 
+
+# Resume analysis section
+st.markdown("---")
+st.subheader("Resume-based job recommendations")
+
+uploaded_resume = st.file_uploader(
+    "Upload your resume",
+    type=["pdf", "docx"],
+    help="Maximum file size: 5 MB",
+)
+
+analyze_resume_button = st.button(
+    "Analyze resume",
+    disabled=uploaded_resume is None,
+    key="analyze_resume_button",
+)
+
+if analyze_resume_button and uploaded_resume is not None:
+    with st.spinner("AI is analyzing your resume..."):
+        try:
+            st.session_state.resume_profile = (
+                analyze_resume_file(uploaded_resume)
+            )
+
+            st.session_state.recommended_jobs = []
+
+            st.success("Resume analyzed successfully.")
+
+        except requests.RequestException as error:
+            st.error(get_error_message(error))
+
+
+# Candidate profile
+profile = st.session_state.resume_profile
+
+if profile:
+    st.markdown("### Candidate profile")
+
+    profile_column, role_column = st.columns(2)
+
+    with profile_column:
+        st.write(
+            f"**Name:** "
+            f"{profile.get('name') or 'Not detected'}"
+        )
+
+        st.write(
+            f"**Graduation year:** "
+            f"{profile.get('graduation_year') or 'Not detected'}"
+        )
+
+        st.write(
+            f"**Experience:** "
+            f"{profile.get('years_of_experience', 0)} years"
+        )
+
+    with role_column:
+        st.write("**Suggested roles:**")
+
+        roles = profile.get("suggested_roles", [])
+
+        if roles:
+            for role in roles:
+                st.write(f"• {role}")
+        else:
+            st.write("No roles detected")
+
+    st.write("**Skills detected:**")
+
+    skills = profile.get("skills", [])
+
+    if skills:
+        st.write(", ".join(skills))
+    else:
+        st.write("No skills detected")
+
+    projects = profile.get("projects", [])
+
+    if projects:
+        with st.expander("Projects found in resume"):
+            for project in projects:
+                st.markdown(
+                    f"**{project.get('name', 'Unnamed project')}**"
+                )
+
+                if project.get("description"):
+                    st.write(project["description"])
+
+                technologies = project.get(
+                    "technologies",
+                    [],
+                )
+
+                if technologies:
+                    st.caption(", ".join(technologies))
+
+
+# Recommended jobs section
+st.markdown("---")
+st.subheader("Recommended jobs")
+
+recommend_button = st.button(
+    "Find jobs matching my resume",
+    disabled=st.session_state.resume_profile is None,
+    key="find_matching_jobs_button",
+)
+
+if recommend_button:
+    with st.spinner("Matching your resume with available jobs..."):
+        try:
+            st.session_state.recommended_jobs = (
+                fetch_matching_jobs()
+            )
+
+            if not st.session_state.recommended_jobs:
+                st.info(
+                    "No matching jobs were found. "
+                    "Refresh some live jobs first."
+                )
+
+        except requests.RequestException as error:
+            st.error(get_error_message(error))
+
+recommended_jobs = st.session_state.recommended_jobs
+
+if recommended_jobs:
+    for job in recommended_jobs:
+        score = job.get("match_score", 0)
+        matched_skills = job.get("matched_skills", [])
+
+        title = job.get("title") or "Untitled job"
+        company = job.get("company") or "Unknown company"
+        location = job.get("location") or "Location not specified"
+
+        st.markdown(
+            f"""
+            <div class="job-card">
+                <div class="job-title">{title}</div>
+                <div class="company-name">{company}</div>
+                <div class="job-meta">📍 {location}</div>
+                <div class="job-meta">🎯 Match score: {score}%</div>
+                <div class="job-meta">
+                    ✅ Matched skills:
+                    {
+                        ", ".join(matched_skills)
+                        if matched_skills
+                        else "None detected"
+                    }
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        application_url = job.get("application_url")
+
+        if application_url:
+            st.link_button(
+                "Apply now",
+                application_url,
+                key=f"recommended_apply_{job.get('job_id')}",
+            )
+
+
+# Refresh live jobs
 if refresh_button:
     if not keyword.strip():
         st.warning("Enter a keyword before refreshing jobs.")
@@ -298,12 +431,11 @@ if refresh_button:
             except requests.RequestException as error:
                 st.error(
                     "Could not refresh jobs. Make sure the FastAPI "
-                    f"backend is running.\n\n{error}"
+                    f"backend is running.\n\n{get_error_message(error)}"
                 )
 
-if "jobs" not in st.session_state:
-    st.session_state.jobs = []
 
+# Load saved jobs after search or refresh
 if search_button or refresh_button:
     with st.spinner("Loading jobs..."):
         try:
@@ -315,10 +447,14 @@ if search_button or refresh_button:
         except requests.RequestException as error:
             st.error(
                 "Could not load jobs. Make sure the FastAPI "
-                f"backend is running.\n\n{error}"
+                f"backend is running.\n\n{get_error_message(error)}"
             )
 
+
+# Available jobs section
 jobs = st.session_state.jobs
+
+st.markdown("---")
 
 left_column, right_column = st.columns([3, 1])
 
@@ -345,10 +481,12 @@ for job in jobs:
     title = job.get("title") or "Untitled job"
     company = job.get("company") or "Unknown company"
     location = job.get("location") or "Location not specified"
+
     employment_type = (
-        job.get("employment_type") or
-        "Employment type not specified"
+        job.get("employment_type")
+        or "Employment type not specified"
     )
+
     source = job.get("source") or "Unknown"
     application_url = job.get("application_url") or "#"
 
@@ -374,11 +512,5 @@ for job in jobs:
     st.link_button(
         "Apply now",
         application_url,
-        use_container_width=False,
+        key=f"job_apply_{job.get('id')}",
     )
-
-
-
-
-
-

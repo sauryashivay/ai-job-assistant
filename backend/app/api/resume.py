@@ -1,5 +1,5 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
-
+from backend.app.api.matcher import latest_resume
 from backend.app.schemas.resume import ResumeProfile
 from backend.app.services.resume_analyzer import analyze_resume
 from backend.app.services.resume_parser import extract_resume_text
@@ -45,7 +45,10 @@ async def analyze_uploaded_resume(
             file_bytes=file_bytes,
         )
 
-        return analyze_resume(resume_text)
+        profile = analyze_resume(resume_text)
+        import backend.app.api.matcher as matcher
+        matcher.latest_resume = profile
+        return profile
 
     except ValueError as error:
         raise HTTPException(
